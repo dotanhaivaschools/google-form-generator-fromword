@@ -1,4 +1,6 @@
 import re
+import json
+import os
 from docx import Document
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -45,19 +47,27 @@ def share_form_with_user(form_id, user_email, credentials):
     }
 
     try:
-        drive_service.permissions().create(
+        result = drive_service.permissions().create(
             fileId=form_id,
             body=permission,
             fields='id',
             sendNotificationEmail=True
         ).execute()
+        print(f"✅ Đã chia sẻ Form cho {user_email}. ID phân quyền: {result.get('id')}")
     except Exception as e:
-        print(f"⚠️ Không thể chia sẻ Form với {user_email}: {e}")
+        print(f"⚠️ Lỗi chia sẻ với {user_email}: {e}")
 
-def create_google_form(questions, form_title, user_email, cred_file="credentials.json"):
-    SCOPES = ['https://www.googleapis.com/auth/forms.body', 'https://www.googleapis.com/auth/drive']
-    credentials = service_account.Credentials.from_service_account_file(
-        cred_file, scopes=SCOPES)
+def create_google_form(questions, form_title, user_email):
+    SCOPES = [
+        'https://www.googleapis.com/auth/forms.body',
+        'https://www.googleapis.com/auth/drive'
+    ]
+
+    # Đọc credentials từ biến môi trường GOOGLE_CREDENTIALS (đã cấu hình trong Streamlit Secrets)
+    credentials = service_account.Credentials.from_service_account_info(
+        json.loads(os.environ["GOOGLE_CREDENTIALS"]),
+        scopes=SCOPES
+    )
 
     service = build('forms', 'v1', credentials=credentials)
 
