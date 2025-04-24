@@ -5,7 +5,6 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import streamlit as st
 
-
 def get_credentials():
     """Lấy credentials từ Streamlit Secrets (GOOGLE_CREDENTIALS)"""
     info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
@@ -30,24 +29,17 @@ def parse_docx(file_path):
                 "answer_key": ""
             }
 
-        # Nhận diện đáp án bắt đầu bằng A., B., C., D.
+        # Nhận diện đáp án bắt đầu bằng A., B., ...
         elif re.match(r"[A-D]\.", text):
+            option_label = text[:2]
             raw_option = text[2:].strip()
-            is_underlined = False
 
-            # Duyệt qua từng run để phát hiện run có gạch chân
-            for run in para.runs:
-                if run.underline and re.match(r"[A-D]\.", run.text.strip()):
-                    # Gạch chân nằm trong label, không dùng
-                    continue
-                if run.underline:
-                    is_underlined = True
-                    break
-
+            # Nếu không có nội dung thì đặt là "Tùy chọn n"
             if not raw_option or raw_option.strip(".") == "":
                 raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-            # Gán làm đáp án đúng nếu gạch chân
+            # Kiểm tra xem có gạch chân không (dấu hiệu là đáp án đúng)
+            is_underlined = any(run.underline for run in para.runs)
             if is_underlined:
                 current_question["answer_key"] = raw_option
 
@@ -64,7 +56,7 @@ def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build('forms', 'v1', credentials=credentials)
 
-    # Tạo biểu mẫu
+    # Tạo form Google
     form = {
         "info": {
             "title": form_title,
@@ -75,11 +67,15 @@ def create_google_form(questions, form_title, share_email=None):
     form_id = result["formId"]
 
     requests = []
+
     for q in questions:
         cleaned = [opt.strip() for opt in q["options"] if opt.strip()]
         unique_options = list(dict.fromkeys(cleaned))  # loại trùng
 
-        # Thêm dấu ⭐ vào đáp án đúng nếu có
+        if not unique_options:
+            continue
+
+        # Gắn dấu ⭐ vào đáp án đúng (nếu có)
         labeled_options = []
         for opt in unique_options:
             if opt == q["answer_key"]:
@@ -110,9 +106,10 @@ def create_google_form(questions, form_title, share_email=None):
         }
         requests.append(question_item)
 
+    # Gửi tất cả câu hỏi lên Google Form
     service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Nếu có email chia sẻ
+    # Nếu có email chia sẻ, cấp quyền chỉnh sửa
     if share_email:
         drive_service = build('drive', 'v3', credentials=credentials)
         drive_service.permissions().create(
