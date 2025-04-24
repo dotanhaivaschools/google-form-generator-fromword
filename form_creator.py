@@ -30,15 +30,25 @@ def parse_docx(file_path):
                 "answer_key": ""
             }
 
-        # Nhận diện đáp án bắt đầu bằng A., B., ...
+        # Nhận diện đáp án bắt đầu bằng A., B., C., D.
         elif re.match(r"[A-D]\.", text):
             raw_option = text[2:].strip()
+            is_underlined = False
+
+            # Duyệt qua từng run để phát hiện run có gạch chân
+            for run in para.runs:
+                if run.underline and re.match(r"[A-D]\.", run.text.strip()):
+                    # Gạch chân nằm trong label, không dùng
+                    continue
+                if run.underline:
+                    is_underlined = True
+                    break
 
             if not raw_option or raw_option.strip(".") == "":
                 raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-            # Nếu có dấu _ hoặc ____ thì là đáp án đúng
-            if "____" in text or "_" in text:
+            # Gán làm đáp án đúng nếu gạch chân
+            if is_underlined:
                 current_question["answer_key"] = raw_option
 
             current_question["options"].append(raw_option)
@@ -54,7 +64,7 @@ def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build('forms', 'v1', credentials=credentials)
 
-    # Tạo Form
+    # Tạo biểu mẫu
     form = {
         "info": {
             "title": form_title,
@@ -69,7 +79,15 @@ def create_google_form(questions, form_title, share_email=None):
         cleaned = [opt.strip() for opt in q["options"] if opt.strip()]
         unique_options = list(dict.fromkeys(cleaned))  # loại trùng
 
-        if not unique_options:
+        # Thêm dấu ⭐ vào đáp án đúng nếu có
+        labeled_options = []
+        for opt in unique_options:
+            if opt == q["answer_key"]:
+                labeled_options.append(f"{opt} ⭐")
+            else:
+                labeled_options.append(opt)
+
+        if not labeled_options:
             continue
 
         question_item = {
@@ -81,7 +99,7 @@ def create_google_form(questions, form_title, share_email=None):
                             "required": True,
                             "choiceQuestion": {
                                 "type": "RADIO",
-                                "options": [{"value": opt} for opt in unique_options],
+                                "options": [{"value": opt} for opt in labeled_options],
                                 "shuffle": False
                             }
                         }
@@ -94,7 +112,7 @@ def create_google_form(questions, form_title, share_email=None):
 
     service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Nếu người dùng nhập email chia sẻ, thêm quyền chỉnh sửa
+    # Nếu có email chia sẻ
     if share_email:
         drive_service = build('drive', 'v3', credentials=credentials)
         drive_service.permissions().create(
