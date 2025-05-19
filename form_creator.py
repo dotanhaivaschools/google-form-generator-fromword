@@ -1,9 +1,9 @@
 import re
+import json
 from docx import Document
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import streamlit as st
-import json
 
 def get_credentials():
     """Lấy credentials từ Streamlit Secrets (GOOGLE_CREDENTIALS)"""
@@ -19,7 +19,7 @@ def parse_docx(file_path):
     for para in doc.paragraphs:
         text = para.text.strip()
 
-        # Câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
+        # Nhận diện câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
         if re.match(r"Câu \d+:", text):
             if current_question and any(opt.strip() for opt in current_question["options"]):
                 questions.append(current_question)
@@ -29,23 +29,23 @@ def parse_docx(file_path):
                 "answer_key": ""
             }
 
-        # Đáp án A., B., C., D.
+        # Nhận diện đáp án bắt đầu bằng A., B., ...
         elif re.match(r"[A-D]\.", text):
+            option_label = text[:2]
             raw_option = text[2:].strip()
 
-            if not raw_option or all(c == '.' for c in raw_option):
+            # Nếu không có nội dung thì đặt là "Tùy chọn n"
+            if not raw_option or raw_option.strip(".") == "":
                 raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-            # Kiểm tra underline trong bất kỳ đoạn nào
-            if para.runs:
-                for run in para.runs:
-                    if run.underline:
-                        current_question["answer_key"] = raw_option
-                        break
+            # Kiểm tra xem có gạch chân không (dấu hiệu là đáp án đúng)
+            is_underlined = any(run.underline for run in para.runs)
+            if is_underlined:
+                current_question["answer_key"] = raw_option
 
             current_question["options"].append(raw_option)
 
-    # Thêm câu cuối cùng
+    # Câu cuối cùng
     if current_question and any(opt.strip() for opt in current_question["options"]):
         questions.append(current_question)
 
@@ -56,6 +56,7 @@ def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build('forms', 'v1', credentials=credentials)
 
+    # Tạo form Google
     form = {
         "info": {
             "title": form_title,
@@ -69,18 +70,21 @@ def create_google_form(questions, form_title, share_email=None):
 
     for q in questions:
         cleaned = [opt.strip() for opt in q["options"] if opt.strip()]
-        unique_options = list(dict.fromkeys(cleaned))
+        unique_options = list(dict.fromkeys(cleaned))  # loại trùng
 
-        if len(unique_options) < 2:
-            st.warning(f"⚠️ Bỏ qua câu hỏi '{q['question']}' vì có ít hơn 2 lựa chọn hợp lệ.")
+        if not unique_options:
             continue
 
+        # Gắn dấu ⭐ vào đáp án đúng (nếu có)
         labeled_options = []
         for opt in unique_options:
             if opt == q["answer_key"]:
                 labeled_options.append(f"{opt} ⭐")
             else:
                 labeled_options.append(opt)
+
+        if not labeled_options:
+            continue
 
         question_item = {
             "createItem": {
@@ -102,19 +106,20 @@ def create_google_form(questions, form_title, share_email=None):
         }
         requests.append(question_item)
 
-    if requests:
-        service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
+    # Gửi tất cả câu hỏi lên Google Form
+    service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-        if share_email:
-            drive_service = build('drive', 'v3', credentials=credentials)
-            drive_service.permissions().create(
-                fileId=form_id,
-                body={
-                    'type': 'user',
-                    'role': 'writer',
-                    'emailAddress': share_email
-                },
-                sendNotificationEmail=True
-            ).execute()
+    # Nếu có email chia sẻ, cấp quyền chỉnh sửa
+    if share_email:
+        drive_service = build('drive', 'v3', credentials=credentials)
+        drive_service.permissions().create(
+            fileId=form_id,
+            body={
+                'type': 'user',
+                'role': 'writer',
+                'emailAddress': share_email
+            },
+            sendNotificationEmail=True
+        ).execute()
 
     return f"https://docs.google.com/forms/d/{form_id}/edit"
