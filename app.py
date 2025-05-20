@@ -1,27 +1,44 @@
 import streamlit as st
-from form_creator_logged import parse_docx, create_google_form  # đảm bảo bạn đã đổi tên file đúng
+from form_creator_logged import parse_docx, create_google_form
 
-st.title("📄 Chuyển đề thi Word sang Google Form")
+st.set_page_config(page_title="Chuyển đề Word sang Google Form", layout="centered")
 
-uploaded_file = st.file_uploader("📤 Tải lên file Word đề thi", type=["docx"])
-share_email = st.text_input("📧 Nhập địa chỉ Gmail để chia sẻ quyền chỉnh sửa Google Form:")
+st.title("📝 Chuyển đề thi Word sang Google Form")
 
+st.markdown("""
+Ứng dụng này giúp bạn:
+- ✅ Trích xuất câu hỏi từ file Word (.docx)
+- ✅ Tự động tạo Google Form với các câu hỏi trắc nghiệm
+- ✅ Chia sẻ quyền chỉnh sửa Form cho một địa chỉ Gmail
+""")
+
+# Upload file Word
+uploaded_file = st.file_uploader("📤 Tải lên file Word đề thi (.docx)", type=["docx"])
+
+# Nhập Gmail để chia sẻ
+share_email = st.text_input("📧 Nhập Gmail để chia sẻ quyền chỉnh sửa Google Form")
+
+# Xử lý khi đã tải file
 if uploaded_file:
-    st.write("📥 Đã tải file:", uploaded_file.name)
+    st.write("📥 File đã tải:", uploaded_file.name)
 
+    # 1. Parse file Word
     questions = parse_docx(uploaded_file)
-    st.write("📄 Kết quả phân tích:", questions)
+    st.write("📄 Câu hỏi đã phân tích:", questions)
 
+    # 2. Nếu có câu hỏi, tạo form
     if questions:
         form_title = uploaded_file.name.replace(".docx", "")
-        st.write("🟢 Gọi hàm create_google_form...")
+        st.write("🟢 Đang tạo Google Form...")
+        
         form_url = create_google_form(form_title, questions, share_email)
-        st.write("📎 Kết quả trả về:", form_url)
+
+        st.write("📎 Kết quả trả về từ API:", form_url)
 
         if form_url:
             st.success("✅ Google Form đã được tạo thành công!")
             st.markdown(f"[🔗 Mở Google Form]({form_url})", unsafe_allow_html=True)
         else:
-            st.error("❌ Không thể tạo Google Form. Vui lòng kiểm tra log.")
+            st.error("❌ Không thể tạo Google Form. Vui lòng kiểm tra log hoặc file đầu vào.")
     else:
         st.warning("⚠️ Không có câu hỏi hợp lệ trong file Word.")
