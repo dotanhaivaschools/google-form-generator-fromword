@@ -6,8 +6,11 @@ from google.oauth2 import service_account
 import streamlit as st
 
 def get_credentials():
-    """Lấy credentials từ Streamlit Secrets (GOOGLE_CREDENTIALS)"""
-    info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    try:
+        info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    except KeyError:
+        st.error("❌ Thiếu GOOGLE_CREDENTIALS trong Secrets của Streamlit Cloud!")
+        raise
     return service_account.Credentials.from_service_account_info(info)
 
 
