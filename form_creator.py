@@ -103,9 +103,14 @@ def create_google_form(title, questions, share_email):
         except Exception as e:
             st.warning(f"⚠️ Không thể lưu form vào Google Drive: {e}")
 
-        # 5. Chia sẻ nếu có email
+        # 5. Gán quyền chia sẻ nếu có email hợp lệ
         if share_email and "@" in share_email:
             try:
+                # Kiểm tra form_id hợp lệ trước
+                form_metadata = drive_service.files().get(fileId=form_id, fields="id, name").execute()
+                st.success(f"✅ Đã tạo form: {form_metadata['name']}")
+        
+                # Chia sẻ form
                 drive_service.permissions().create(
                     fileId=form_id,
                     body={
