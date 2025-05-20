@@ -1,4 +1,3 @@
-
 import json
 import streamlit as st
 from google.oauth2 import service_account
@@ -7,7 +6,9 @@ from docx import Document
 
 def get_credentials():
     try:
+        st.write("🔐 Đang tải credentials từ st.secrets...")
         info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        st.write("✅ Đã lấy được credentials")
         return service_account.Credentials.from_service_account_info(info, scopes=[
             'https://www.googleapis.com/auth/forms.body',
             'https://www.googleapis.com/auth/forms.responses.readonly',
@@ -19,6 +20,7 @@ def get_credentials():
 
 def parse_docx(docx_file):
     try:
+        st.write("📄 Đang phân tích file Word...")
         document = Document(docx_file)
         questions = []
         current_question = None
@@ -42,6 +44,8 @@ def parse_docx(docx_file):
 
         if current_question:
             questions.append(current_question)
+
+        st.write(f"✅ Đã phân tích {len(questions)} câu hỏi")
         return questions
     except Exception as e:
         st.error(f"❌ Lỗi khi đọc file Word: {e}")
@@ -49,12 +53,15 @@ def parse_docx(docx_file):
 
 def create_google_form(title, questions, share_email):
     try:
+        st.write("🔧 Bắt đầu tạo Google Form...")
         creds = get_credentials()
         if not creds:
+            st.error("❌ Không lấy được credentials")
             return None
 
         forms_service = build('forms', 'v1', credentials=creds)
         drive_service = build('drive', 'v3', credentials=creds)
+        st.write("✅ Đã khởi tạo Google API Services")
 
         NEW_FORM = {"info": {"title": title}}
         form = forms_service.forms().create(body=NEW_FORM).execute()
@@ -84,20 +91,22 @@ def create_google_form(title, questions, share_email):
             requests_list.append(item)
 
         forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests_list}).execute()
+        st.write(f"✅ Đã thêm {len(questions)} câu hỏi vào form")
 
-        # Cố gắng lưu form vào Drive
         try:
             drive_service.files().update(
                 fileId=form_id,
                 addParents='root'
             ).execute()
+            st.write("📁 Đã lưu form vào Google Drive")
         except Exception as e:
             st.warning(f"⚠️ Không thể lưu form vào Google Drive: {e}")
 
         if share_email and "@" in share_email:
             try:
+                st.write(f"📤 Đang chia sẻ form tới: {share_email}")
                 form_metadata = drive_service.files().get(fileId=form_id, fields="id, name").execute()
-                st.success(f"✅ Đã tạo form: {form_metadata['name']}")
+                st.write(f"📄 Tên form: {form_metadata['name']}")
                 drive_service.permissions().create(
                     fileId=form_id,
                     body={
@@ -107,6 +116,7 @@ def create_google_form(title, questions, share_email):
                     },
                     sendNotificationEmail=True
                 ).execute()
+                st.success(f"✅ Đã chia sẻ form tới {share_email}")
             except Exception as e:
                 st.warning(f"⚠️ Không thể chia sẻ form với {share_email}: {e}")
         else:
