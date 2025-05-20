@@ -1,5 +1,5 @@
 import streamlit as st
-from form_creator_logged import parse_docx, create_google_form
+from form_creator import parse_docx, create_google_form
 
 st.set_page_config(page_title="Chuyển đề Word sang Google Form", layout="centered")
 
