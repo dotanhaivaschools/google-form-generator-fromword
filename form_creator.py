@@ -114,17 +114,17 @@ def create_google_form(questions, form_title, share_email=None):
 
     # Nếu có email chia sẻ, cấp quyền chỉnh sửa
     if share_email and "@" in share_email:
-    try:
-        drive_service.permissions().create(
-            fileId=form_id,
-            body={
-                'type': 'user',
-                'role': 'writer',
-                'emailAddress': share_email
-            },
-            sendNotificationEmail=True
-        ).execute()
-    except Exception as e:
-        st.warning(f"⚠️ Không thể chia sẻ form: {e}")
+        try:
+            drive_service.permissions().create(
+                fileId=form_id,
+                body={
+                    'type': 'user',
+                    'role': 'writer',
+                    'emailAddress': share_email
+                },
+                sendNotificationEmail=True
+            ).execute()
+        except Exception as e:
+            st.warning(f"⚠️ Không thể chia sẻ form: {e}")
 
     return f"https://docs.google.com/forms/d/{form_id}/edit"
