@@ -14,43 +14,42 @@ def get_credentials():
 def parse_docx(file_path):
     doc = Document(file_path)
     questions = []
-    current_question = {}
+    current_question = None
 
     for para in doc.paragraphs:
         text = para.text.strip()
 
-        # Nhận diện câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
+        # Nếu là câu hỏi
         if re.match(r"Câu \d+:", text):
-            if current_question and any(opt.strip() for opt in current_question["options"]):
-                questions.append(current_question)
+            if current_question:
+                if current_question.get("question") and current_question.get("options"):
+                    questions.append(current_question)
             current_question = {
                 "question": re.sub(r"Câu \d+:\s*", "", text),
                 "options": [],
                 "answer_key": ""
             }
 
-        # Nhận diện đáp án bắt đầu bằng A., B., ...
-        elif re.match(r"[A-D]\.", text):
-            option_label = text[:2]
+        # Nếu là đáp án
+        elif re.match(r"[A-D]\.", text) and current_question:
+            label = text[:2]
             raw_option = text[2:].strip()
 
-            # Nếu không có nội dung thì đặt là "Tùy chọn n"
-            if not raw_option or raw_option.strip(".") == "":
+            if not raw_option:
                 raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-            # Kiểm tra xem có gạch chân không (dấu hiệu là đáp án đúng)
-            is_underlined = any(run.underline for run in para.runs)
-            if is_underlined:
+            # Kiểm tra có gạch chân ở nhãn (A./B./C./D.)
+            underline_run = next((run for run in para.runs if run.text.startswith(label) and run.underline), None)
+            if underline_run:
                 current_question["answer_key"] = raw_option
 
             current_question["options"].append(raw_option)
 
-    # Câu cuối cùng
-    if current_question and any(opt.strip() for opt in current_question["options"]):
+    # Thêm câu cuối cùng nếu hợp lệ
+    if current_question and current_question.get("options"):
         questions.append(current_question)
 
     return questions
-
 
 def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
