@@ -19,7 +19,7 @@ def parse_docx(file_path):
     for para in doc.paragraphs:
         text = para.text.strip()
 
-        # Nếu là câu hỏi
+        # Nếu là câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
         if re.match(r"Câu \d+:", text):
             if current_question:
                 if current_question.get("question") and current_question.get("options"):
@@ -30,7 +30,7 @@ def parse_docx(file_path):
                 "answer_key": ""
             }
 
-        # Nếu là đáp án
+        # Nếu là đáp án A., B., C., D.
         elif re.match(r"[A-D]\.", text) and current_question:
             label = text[:2]
             raw_option = text[2:].strip()
@@ -45,11 +45,12 @@ def parse_docx(file_path):
 
             current_question["options"].append(raw_option)
 
-    # Thêm câu cuối cùng nếu hợp lệ
+    # Thêm câu hỏi cuối nếu hợp lệ
     if current_question and current_question.get("options"):
         questions.append(current_question)
 
     return questions
+
 
 def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
@@ -68,16 +69,17 @@ def create_google_form(questions, form_title, share_email=None):
     requests = []
 
     for q in questions:
-        cleaned = [opt.strip() for opt in q["options"] if opt.strip()]
+        # Loại bỏ xuống dòng trong đáp án
+        cleaned = [opt.strip().replace("\n", " ") for opt in q["options"] if opt.strip()]
         unique_options = list(dict.fromkeys(cleaned))  # loại trùng
 
         if not unique_options:
             continue
 
-        # Gắn dấu ⭐ vào đáp án đúng (nếu có)
+        # Gắn ⭐ vào đáp án đúng (nếu có)
         labeled_options = []
         for opt in unique_options:
-            if opt == q["answer_key"]:
+            if opt == q["answer_key"].replace("\n", " ").strip():
                 labeled_options.append(f"{opt} ⭐")
             else:
                 labeled_options.append(opt)
@@ -85,10 +87,13 @@ def create_google_form(questions, form_title, share_email=None):
         if not labeled_options:
             continue
 
+        # Xử lý xuống dòng trong câu hỏi
+        question_title = q["question"].replace("\n", " ").strip()
+
         question_item = {
             "createItem": {
                 "item": {
-                    "title": q["question"],
+                    "title": question_title,
                     "questionItem": {
                         "question": {
                             "required": True,
