@@ -10,7 +10,6 @@ def get_credentials():
     info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
     return service_account.Credentials.from_service_account_info(info)
 
-
 def parse_docx(file_path):
     doc = Document(file_path)
     questions = []
@@ -19,44 +18,47 @@ def parse_docx(file_path):
     for para in doc.paragraphs:
         text = para.text.strip()
 
-        # Nếu là câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
+        # Nếu là dòng bắt đầu bằng "Câu 1:", "Câu 2:", ...
         if re.match(r"Câu \d+:", text):
-            if current_question:
-                if current_question.get("question") and current_question.get("options"):
-                    questions.append(current_question)
+            if current_question and current_question.get("options"):
+                questions.append(current_question)
             current_question = {
                 "question": re.sub(r"Câu \d+:\s*", "", text),
                 "options": [],
                 "answer_key": ""
             }
 
-        # Nếu là đáp án A., B., C., D.
-        elif re.match(r"[A-D]\.", text) and current_question:
-            label = text[:2]
-            raw_option = text[2:].strip()
+        # Nếu là dòng chứa A., B., C., D.
+        elif current_question and any(label in text for label in ["A.", "B.", "C.", "D."]):
+            # Tách từng đáp án nếu chúng nằm cùng dòng
+            parts = re.split(r"(?=\b[A-D]\.)", text)
+            for part in parts:
+                part = part.strip()
+                if re.match(r"[A-D]\.", part):
+                    label = part[:2]
+                    raw_option = part[2:].strip()
 
-            if not raw_option:
-                raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
+                    if not raw_option:
+                        raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-            # Kiểm tra có gạch chân ở nhãn (A./B./C./D.)
-            underline_run = next((run for run in para.runs if run.text.startswith(label) and run.underline), None)
-            if underline_run:
-                current_question["answer_key"] = raw_option
+                    # Kiểm tra có gạch chân không (đáp án đúng)
+                    is_underlined = any(run.underline for run in para.runs if run.text.startswith(label))
+                    if is_underlined:
+                        current_question["answer_key"] = raw_option
 
-            current_question["options"].append(raw_option)
+                    current_question["options"].append(raw_option)
 
-    # Thêm câu hỏi cuối nếu hợp lệ
+    # Thêm câu cuối cùng nếu hợp lệ
     if current_question and current_question.get("options"):
         questions.append(current_question)
 
     return questions
 
-
 def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build('forms', 'v1', credentials=credentials)
 
-    # Tạo form Google
+    # Tạo biểu mẫu Google Form
     form = {
         "info": {
             "title": form_title,
@@ -69,14 +71,13 @@ def create_google_form(questions, form_title, share_email=None):
     requests = []
 
     for q in questions:
-        # Loại bỏ xuống dòng trong đáp án
+        # Làm sạch dữ liệu: loại bỏ xuống dòng
         cleaned = [opt.strip().replace("\n", " ") for opt in q["options"] if opt.strip()]
         unique_options = list(dict.fromkeys(cleaned))  # loại trùng
 
         if not unique_options:
             continue
 
-        # Gắn ⭐ vào đáp án đúng (nếu có)
         labeled_options = []
         for opt in unique_options:
             if opt == q["answer_key"].replace("\n", " ").strip():
@@ -87,7 +88,6 @@ def create_google_form(questions, form_title, share_email=None):
         if not labeled_options:
             continue
 
-        # Xử lý xuống dòng trong câu hỏi
         question_title = q["question"].replace("\n", " ").strip()
 
         question_item = {
@@ -110,10 +110,10 @@ def create_google_form(questions, form_title, share_email=None):
         }
         requests.append(question_item)
 
-    # Gửi tất cả câu hỏi lên Google Form
+    # Gửi tất cả câu hỏi lên biểu mẫu
     service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Nếu có email chia sẻ, cấp quyền chỉnh sửa
+    # Chia sẻ quyền chỉnh sửa nếu có email
     if share_email:
         drive_service = build('drive', 'v3', credentials=credentials)
         drive_service.permissions().create(
