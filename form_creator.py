@@ -15,40 +15,50 @@ def parse_docx(file_path):
     questions = []
     current_question = None
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
+    def handle_paragraphs(paragraphs):
+        nonlocal current_question, questions
+        for para in paragraphs:
+            text = para.text.strip()
 
-        # Nhận diện câu hỏi mới bắt đầu bằng "Câu 1:", "Câu 2:", ...
-        if re.match(r"Câu \d+:", text):
-            if current_question and current_question.get("options"):
-                questions.append(current_question)
-            current_question = {
-                "question": re.sub(r"Câu \d+:\s*", "", text),
-                "options": [],
-                "answer_key": ""
-            }
+            # Nhận diện câu hỏi bắt đầu bằng "Câu 1:", "Câu 2:", ...
+            if re.match(r"Câu \d+:", text):
+                if current_question and current_question.get("options"):
+                    questions.append(current_question)
+                current_question = {
+                    "question": re.sub(r"Câu \d+:\s*", "", text),
+                    "options": [],
+                    "answer_key": ""
+                }
 
-        # Nhận diện các đáp án dù nằm trong cùng 1 đoạn
-        elif current_question and any(label in text for label in ["A.", "B.", "C.", "D."]):
-            # Tách đoạn này thành nhiều phần nếu có nhiều đáp án
-            parts = re.split(r"(?=\b[A-D]\.)", text)
-            for part in parts:
-                part = part.strip()
-                if re.match(r"[A-D]\.", part):
-                    label = part[:2]
-                    raw_option = part[2:].strip()
+            # Nhận diện các đáp án A. B. C. D. (dù nằm chung 1 dòng)
+            elif current_question and any(label in text for label in ["A.", "B.", "C.", "D."]):
+                parts = re.split(r"(?=\b[A-D]\.)", text)
+                for part in parts:
+                    part = part.strip()
+                    if re.match(r"[A-D]\.", part):
+                        label = part[:2]
+                        raw_option = part[2:].strip()
 
-                    if not raw_option:
-                        raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
+                        if not raw_option:
+                            raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-                    # Kiểm tra có gạch chân ở label không (để xác định đáp án đúng)
-                    is_underlined = any(run.underline for run in para.runs if run.text.startswith(label))
-                    if is_underlined:
-                        current_question["answer_key"] = raw_option
+                        # Kiểm tra có gạch chân ở label
+                        is_underlined = any(run.underline for run in para.runs if run.text.startswith(label))
+                        if is_underlined:
+                            current_question["answer_key"] = raw_option
 
-                    current_question["options"].append(raw_option)
+                        current_question["options"].append(raw_option)
 
-    # Thêm câu cuối cùng nếu hợp lệ
+    # ✅ Duyệt tất cả các đoạn văn thường
+    handle_paragraphs(doc.paragraphs)
+
+    # ✅ Duyệt các đoạn văn trong bảng (nếu có)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                handle_paragraphs(cell.paragraphs)
+
+    # Thêm câu hỏi cuối cùng
     if current_question and current_question.get("options"):
         questions.append(current_question)
 
@@ -58,7 +68,7 @@ def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build('forms', 'v1', credentials=credentials)
 
-    # Tạo biểu mẫu mới
+    # Tạo biểu mẫu Google Form
     form = {
         "info": {
             "title": form_title,
@@ -71,14 +81,12 @@ def create_google_form(questions, form_title, share_email=None):
     requests = []
 
     for q in questions:
-        # Làm sạch dữ liệu: loại bỏ ký tự xuống dòng
         cleaned = [opt.strip().replace("\n", " ") for opt in q["options"] if opt.strip()]
-        unique_options = list(dict.fromkeys(cleaned))  # loại bỏ trùng lặp
+        unique_options = list(dict.fromkeys(cleaned))
 
         if not unique_options:
             continue
 
-        # Gắn dấu ⭐ vào đáp án đúng (nếu có)
         labeled_options = []
         for opt in unique_options:
             if opt == q["answer_key"].replace("\n", " ").strip():
@@ -111,10 +119,10 @@ def create_google_form(questions, form_title, share_email=None):
         }
         requests.append(question_item)
 
-    # Gửi yêu cầu tạo tất cả câu hỏi
+    # Gửi tất cả câu hỏi lên form
     service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Cấp quyền chỉnh sửa nếu có email
+    # Chia sẻ quyền chỉnh sửa (nếu có)
     if share_email:
         drive_service = build('drive', 'v3', credentials=credentials)
         drive_service.permissions().create(
