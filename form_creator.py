@@ -16,9 +16,10 @@ def parse_docx(file_path):
     """
     Đọc file Word (.docx) và trích xuất danh sách câu hỏi.
     Hỗ trợ:
-    - File Word xuất từ Markdown (nội dung 1 đoạn)
+    - File Word sinh từ Markdown (nội dung 1 đoạn)
     - Tự động tách Câu hỏi / Đáp án
     - Nhận diện A., B., C., D. dù dính liền hoặc có khoảng trắng
+    - Loại bỏ phần A.–D. khỏi nội dung câu hỏi
     - Nhận diện đáp án đúng từ ký tự được gạch chân (underline)
     - Duyệt cả đoạn văn và bảng (table)
     """
@@ -51,10 +52,15 @@ def parse_docx(file_path):
                     "answer_key": ""
                 }
 
-                # Lấy nội dung câu hỏi
+                # Lấy toàn bộ phần sau "Câu n:"
                 match_q = re.match(r"^Câu\s*\d+\s*[:\.]\s*(.+)", seg)
                 if match_q:
-                    current_question["question"] = match_q.group(1).strip()
+                    full_text = match_q.group(1).strip()
+
+                    # ✂️ Tách phần trước "A." làm nội dung câu hỏi
+                    match_question_only = re.split(r"\bA\s*\.", full_text, maxsplit=1)
+                    if match_question_only:
+                        current_question["question"] = match_question_only[0].strip()
 
             # 🟠 Tách các đáp án A., B., C., D.
             parts = re.split(r"(?=\b[A-D]\s*\.)", seg)
@@ -72,7 +78,7 @@ def parse_docx(file_path):
                 if not raw_option:
                     raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
 
-                # 🔵 Kiểm tra gạch chân trong run (nếu đoạn văn có tham chiếu)
+                # 🔵 Kiểm tra gạch chân trong run (đáp án đúng)
                 if para:
                     for run in para.runs:
                         if run.underline and f"{label}." in run.text:
