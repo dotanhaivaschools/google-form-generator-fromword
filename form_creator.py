@@ -14,33 +14,34 @@ def get_credentials():
 
 def parse_docx(file_path):
     """
-    Đọc file Word (.docx) và trích xuất danh sách câu hỏi từ nội dung Markdown chuyển sang Word.
-    - Tự tách câu hỏi và đáp án dù cùng 1 paragraph
-    - Hỗ trợ cả bảng (table)
-    - Nhận dạng "Câu n:" ở giữa hoặc đầu dòng
-    - Xử lý soft line breaks, tab, và xuống dòng mềm
+    Đọc file Word (.docx) và trích xuất danh sách câu hỏi.
+    Hỗ trợ:
+    - File Word xuất từ Markdown (nội dung 1 đoạn)
+    - Tự động tách Câu hỏi / Đáp án
+    - Nhận diện A., B., C., D. dù dính liền hoặc có khoảng trắng
+    - Nhận diện đáp án đúng từ ký tự được gạch chân (underline)
+    - Duyệt cả đoạn văn và bảng (table)
     """
     doc = Document(file_path)
     questions = []
     current_question = None
 
-    def extract_from_text_block(block_text):
-        """Tách câu hỏi và đáp án trong 1 đoạn văn duy nhất"""
+    def extract_from_text_block(block_text, para=None):
+        """Phân tích 1 đoạn văn bản, tách câu hỏi và đáp án"""
         nonlocal current_question, questions
 
-        # Chuẩn hóa: bỏ ký tự thừa, thay xuống dòng mềm bằng dấu cách
-        block_text = block_text.replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
-        # Gom nhiều khoảng trắng liên tiếp thành 1
-        block_text = re.sub(r"\s{2,}", " ", block_text)
+        # Chuẩn hóa văn bản: loại bỏ xuống dòng mềm, tab, khoảng trắng thừa
+        block_text = block_text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        block_text = re.sub(r"\s{2,}", " ", block_text).strip()
 
-        # Nếu có nhiều câu hỏi trong 1 block → tách riêng
+        # Có thể chứa nhiều câu hỏi trong 1 đoạn
         segments = re.split(r"(?=Câu\s*\d+\s*[:\.])", block_text)
         for seg in segments:
             seg = seg.strip()
             if not seg:
                 continue
 
-            # Nếu là câu hỏi
+            # 🟢 Bắt đầu câu hỏi mới
             if re.match(r"^Câu\s*\d+\s*[:\.]", seg):
                 if current_question and current_question.get("options"):
                     questions.append(current_question)
@@ -55,44 +56,56 @@ def parse_docx(file_path):
                 if match_q:
                     current_question["question"] = match_q.group(1).strip()
 
-            # Lấy các đáp án (A. B. C. D.)
+            # 🟠 Tách các đáp án A., B., C., D.
             parts = re.split(r"(?=\b[A-D]\s*\.)", seg)
             for part in parts:
                 part = part.strip()
-                if re.match(r"^[A-D]\s*\.", part):
-                    label_match = re.match(r"^([A-D])\s*\.", part)
-                    if not label_match:
-                        continue
-                    label = label_match.group(1)
-                    raw_option = re.sub(r"^[A-D]\s*\.\s*", "", part).strip()
-                    if not raw_option:
-                        raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
-                    current_question["options"].append(raw_option)
+                if not re.match(r"^[A-D]\s*\.", part):
+                    continue
 
-    # Hàm xử lý toàn bộ đoạn và bảng
+                label_match = re.match(r"^([A-D])\s*\.", part)
+                if not label_match:
+                    continue
+                label = label_match.group(1)
+                raw_option = re.sub(r"^[A-D]\s*\.\s*", "", part).strip()
+
+                if not raw_option:
+                    raw_option = f"Tùy chọn {len(current_question['options']) + 1}"
+
+                # 🔵 Kiểm tra gạch chân trong run (nếu đoạn văn có tham chiếu)
+                if para:
+                    for run in para.runs:
+                        if run.underline and f"{label}." in run.text:
+                            current_question["answer_key"] = raw_option
+
+                current_question["options"].append(raw_option)
+
     def handle_paragraphs(paragraphs):
+        """Duyệt qua danh sách paragraph và xử lý từng đoạn"""
         for para in paragraphs:
             text = para.text.strip()
             if text:
-                extract_from_text_block(text)
+                extract_from_text_block(text, para)
 
-    # Duyệt toàn bộ đoạn văn chính
+    # ✅ Duyệt toàn bộ đoạn văn chính
     handle_paragraphs(doc.paragraphs)
 
-    # Duyệt cả bảng (nếu có)
+    # ✅ Duyệt cả bảng (table) nếu có
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 handle_paragraphs(cell.paragraphs)
 
-    # Câu hỏi cuối cùng
+    # ✅ Thêm câu cuối cùng (nếu có)
     if current_question and current_question.get("options"):
         questions.append(current_question)
 
+    # ⚠️ Nếu không có câu hỏi nào
     if not questions:
         raise ValueError(
             "Không trích xuất được câu hỏi nào từ file Word! "
-            "Kiểm tra lại nội dung: Mỗi câu hỏi phải chứa 'Câu n:' và ít nhất một đáp án A."
+            "Hãy đảm bảo rằng mỗi câu hỏi bắt đầu bằng 'Câu n:' "
+            "và có ít nhất một đáp án A."
         )
 
     return questions
@@ -103,12 +116,18 @@ def create_google_form(questions, form_title, share_email=None):
     credentials = get_credentials()
     service = build("forms", "v1", credentials=credentials)
 
-    # Tạo form
-    form = {"info": {"title": form_title, "documentTitle": form_title}}
+    # 🧾 Tạo biểu mẫu Google Form
+    form = {
+        "info": {
+            "title": form_title,
+            "documentTitle": form_title
+        }
+    }
     result = service.forms().create(body=form).execute()
     form_id = result["formId"]
 
     requests = []
+
     for q in questions:
         cleaned = [opt.strip().replace("\n", " ") for opt in q["options"] if opt.strip()]
         unique_options = list(dict.fromkeys(cleaned))
@@ -116,9 +135,16 @@ def create_google_form(questions, form_title, share_email=None):
         if not unique_options:
             continue
 
-        labeled_options = [opt for opt in unique_options]
+        # ⭐ Gắn sao cho đáp án đúng
+        labeled_options = []
+        for opt in unique_options:
+            if opt == q.get("answer_key", "").replace("\n", " ").strip():
+                labeled_options.append(f"{opt} ⭐")
+            else:
+                labeled_options.append(opt)
 
         question_title = q["question"].replace("\n", " ").strip()
+
         question_item = {
             "createItem": {
                 "item": {
@@ -129,20 +155,20 @@ def create_google_form(questions, form_title, share_email=None):
                             "choiceQuestion": {
                                 "type": "RADIO",
                                 "options": [{"value": opt} for opt in labeled_options],
-                                "shuffle": False,
+                                "shuffle": False
                             }
                         }
-                    },
+                    }
                 },
-                "location": {"index": 0},
+                "location": {"index": 0}
             }
         }
         requests.append(question_item)
 
-    # Gửi lên Form
+    # 📤 Gửi toàn bộ câu hỏi lên Google Form
     service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Chia sẻ quyền nếu có email
+    # 📬 Cấp quyền chỉnh sửa nếu có email
     if share_email:
         drive_service = build("drive", "v3", credentials=credentials)
         drive_service.permissions().create(
@@ -150,9 +176,9 @@ def create_google_form(questions, form_title, share_email=None):
             body={
                 "type": "user",
                 "role": "writer",
-                "emailAddress": share_email,
+                "emailAddress": share_email
             },
-            sendNotificationEmail=True,
+            sendNotificationEmail=True
         ).execute()
 
     return f"https://docs.google.com/forms/d/{form_id}/edit"
